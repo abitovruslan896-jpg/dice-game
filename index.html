@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Neon Rush - QuickPlay Lab</title>
+    <style>
+        body { background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; color: #fff; font-family: 'Courier New', monospace; overflow: hidden; }
+        canvas { border: 4px solid #333; image-rendering: pixelated; background-color: #050505; cursor: crosshair; }
+        .ui { margin-bottom: 10px; text-align: center; }
+        #startScreen { position: absolute; background: rgba(0,0,0,0.9); width: 400px; height: 600px; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10; text-align: center; border: 4px solid #0ff; }
+        button { padding: 15px 40px; font-size: 24px; background: #0ff; color: #000; border: none; cursor: pointer; font-family: inherit; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div id="startScreen">
+        <h1 style="color: #0ff; text-shadow: 0 0 10px #0ff;">NEON RUSH</h1>
+        <p>Лови нужные кубы!<br>Радужный = БОНУС (+50)</p>
+        <button onclick="startGame()">ПОЕХАЛИ!</button>
+    </div>
+
+    <div class="ui">
+        <div style="font-size: 24px;">СЧЕТ: <span id="scoreText">0</span></div>
+        <div style="margin-top: 5px;">НУЖЕН: <canvas id="targetPreview" width="40" height="40" style="vertical-align: middle;"></canvas></div>
+    </div>
+    
+    <canvas id="gameCanvas" width="400" height="600"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const targetPreviewCtx = document.getElementById('targetPreview').getContext('2d');
+        
+        const assets = {
+            images: {
+                green: 'New Piskel (43).png',  //
+                red: 'New Piskel (44).png',    //
+                blue: 'New Piskel (45).png',   //
+                pink: 'New Piskel (46).png',   //
+                orange: 'New Piskel (47).png', //
+                rainbow: 'New Piskel (48).png' //
+            },
+            sounds: {
+                punch: new Audio('jg-032316-sfx-8-bit-punch.mp3'),      //
+                bonus: new Audio('jg-032316-sfx-8-bit-score-1.mp3'),    //
+                music: new Audio('02 - NEW JACK RUNNER.mp3')            //
+            }
+        };
+
+        const loadedImages = {};
+        let score = 0;
+        let gameActive = false;
+        let blocks = [];
+        let currentTargetType = 'green';
+        let speed = 2.5;
+        let spawnTimer = 0;
+        let globalFrame = 0;
+
+        // Загрузка картинок
+        Object.keys(assets.images).forEach(key => {
+            const img = new Image();
+            img.src = assets.images[key];
+            loadedImages[key] = img;
+        });
+
+        assets.sounds.music.loop = true;
+
+        function startGame() {
+            document.getElementById('startScreen').style.display = 'none';
+            gameActive = true;
+            score = 0;
+            blocks = [];
+            speed = 2.5;
+            assets.sounds.music.play();
+            updateTarget();
+            animate();
+        }
+
+        function updateTarget() {
+            const types = ['green', 'red', 'blue', 'pink', 'orange'];
+            currentTargetType = types[Math.floor(Math.random() * types.length)];
+        }
+
+        class Block {
+            constructor(isRainbow = false) {
+                this.size = 64; 
+                this.x = Math.random() * (canvas.width - this.size);
+                this.y = -this.size;
+                this.type = isRainbow ? 'rainbow' : ['green', 'red', 'blue', 'pink', 'orange'][Math.floor(Math.random() * 5)];
+                this.fallSpeed = speed + Math.random();
+                this.frame = 0;
+                this.animSpeed = 0.15;
+            }
+
+            draw(context) {
+                const img = loadedImages[this.type];
+                if (!img || !img.complete) return;
+                
+                // Рассчитываем кадр (4 кадра в ряд)
+                const frameWidth = img.width / 4;
+                const currentFrame = Math.floor(this.frame) % 4;
+
+                context.drawImage(
+                    img, 
+                    currentFrame * frameWidth, 0, frameWidth, img.height, // Область в спрайте
+                    this.x, this.y, this.size, this.size               // Где рисовать
+                );
+                this.frame += this.animSpeed;
+            }
+
+            update() {
+                this.y += this.fallSpeed;
+            }
+        }
+
+        canvas.addEventListener('mousedown', (e) => {
+            if (!gameActive) return;
+            const rect = canvas.getBoundingClientRect();
+            const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
+            const my = (e.clientY - rect.top) * (canvas.height / rect.height);
+
+            let hitSomething = false;
+
+            for (let i = blocks.length - 1; i >= 0; i--) {
+                let b = blocks[i];
+                if (mx > b.x && mx < b.x + b.size && my > b.y && my < b.y + b.size) {
+                    hitSomething = true;
+                    if (b.type === currentTargetType) {
+                        score += 10;
+                        assets.sounds.punch.cloneNode().play();
+                        blocks.splice(i, 1);
+                        if (score % 50 === 0) updateTarget();
+                    } else if (b.type === 'rainbow') {
+                        score += 50;
+                        assets.sounds.bonus.cloneNode().play();
+                        blocks.splice(i, 1);
+                    } else {
+                        // ОШИБКА: Нажал не на тот куб
+                        gameOver("ОШИБКА! Это был не тот цвет.");
+                    }
+                    break; 
+                }
+            }
+        });
+
+        function gameOver(msg) {
+            gameActive = false;
+            assets.sounds.music.pause();
+            alert(msg + "\nТвой счет: " + score);
+            location.reload();
+        }
+
+        function animate() {
+            if (!gameActive) return;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Отрисовка цели в UI (первый кадр)
+            targetPreviewCtx.clearRect(0, 0, 40, 40);
+            const targetImg = loadedImages[currentTargetType];
+            if (targetImg) {
+                targetPreviewCtx.drawImage(targetImg, 0, 0, targetImg.width/4, targetImg.height, 0, 0, 40, 40);
+            }
+
+            spawnTimer++;
+            if (spawnTimer > Math.max(20, 50 - score/20)) {
+                blocks.push(new Block(Math.random() > 0.92));
+                spawnTimer = 0;
+            }
+
+            for (let i = blocks.length - 1; i >= 0; i--) {
+                blocks[i].update();
+                blocks[i].draw(ctx);
+
+                if (blocks[i].y > canvas.height) {
+                    if (blocks[i].type === currentTargetType) {
+                        gameOver("ПРОПУСТИЛ ЦЕЛЬ!");
+                    }
+                    blocks.splice(i, 1);
+                }
+            }
+
+            document.getElementById('scoreText').innerText = score;
+            speed += 0.0005; 
+            requestAnimationFrame(animate);
+        }
+    </script>
+</body>
+</html>
